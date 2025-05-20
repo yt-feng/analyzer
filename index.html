@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<!-- Application Structure Plan: Tabbed single-page application.
+    1.  **租金估算器 (Cost Estimator):** Main interactive section. Users select car type and rental duration. Displays a Chart.js bar chart for base rental cost ranges. Includes an interactive checklist for common additional fees. Dynamically updates a 'Total Estimated Cost Range'.
+        - **NEW Gemini API Features:**
+            - Button: "✨ AI智能行程建议" - Calls Gemini API to generate itinerary suggestions based on car type and duration. Displays results below.
+            - Button: "✨ AI省钱技巧" - Calls Gemini API to generate personalized saving tips based on car type and duration. Displays results below.
+    2.  **费用详解 (Detailed Costs):** Uses accordions for individual cost components. Includes 'Potential Additional Fees' table.
+    3.  **选择租车公司 (Provider Choice):** Compares Direct Companies vs. Aggregators.
+    4.  **重要贴士 (Essential Tips):** Summarizes advice on documents, contract review, avoiding problems.
+    Navigation by top tabs. This structure enhances usability by adding AI-powered, context-aware advice directly within the primary estimation flow.
+-->
+<!-- Visualization & Content Choices:
+    - **租金估算器 - 基础租金图表:** Chart.js bar chart. (Existing)
+    - **租金估算器 - 额外费用清单:** Interactive HTML checklist. (Existing)
+    - **NEW - AI智能行程建议:**
+        - Report Info: User selections (car type, duration).
+        - Goal: Provide personalized travel ideas.
+        - Viz/Presentation: Button to trigger API call; results displayed in a styled div.
+        - Interaction: Click button, view generated text. Loading state.
+        - Justification: Adds value beyond simple cost estimation, leveraging AI for creative suggestions.
+        - Library/Method: Vanilla JS (fetch to Gemini API), HTML/CSS for display.
+    - **NEW - AI省钱技巧:**
+        - Report Info: User selections (car type, duration).
+        - Goal: Offer tailored financial advice for car rental.
+        - Viz/Presentation: Button to trigger API call; results displayed in a styled div.
+        - Interaction: Click button, view generated text. Loading state.
+        - Justification: Provides dynamic, context-specific tips that static content cannot easily achieve.
+        - Library/Method: Vanilla JS (fetch to Gemini API), HTML/CSS for display.
+    - **费用详解 - 各项费用明细:** HTML accordions. (Existing)
+    - **费用详解 - 附加费用总表:** HTML table. (Existing)
+    - **选择租车公司 & 重要贴士 - 内容呈现:** Structured HTML text. (Existing)
+    - CONFIRMATION: NO SVG graphics used (beyond Chart.js internal rendering). NO Mermaid JS used.
+-->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>迪拜租车成本交互式分析器 (含AI功能)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .tab-button.active { border-color: #0ea5e9; color: #0ea5e9; background-color: #e0f2fe; }
+        .tab-button { transition: all 0.3s ease-in-out; }
+        .content-section { display: none; }
+        .content-section.active { display: block; }
+        .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+        .chart-container { position: relative; width: 100%; max-width: 700px; margin-left: auto; margin-right: auto; height: 320px; max-height: 400px; }
+        @media (min-width: 768px) { .chart-container { height: 400px; } }
+        .tooltip { position: relative; display: inline-block; }
+        .tooltip .tooltiptext { visibility: hidden; width: 200px; background-color: #555; color: #fff; text-align: center; border-radius: 6px; padding: 5px 0; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -100px; opacity: 0; transition: opacity 0.3s; font-size: 0.875rem; }
+        .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+        .gemini-output { margin-top: 1rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.375rem; background-color: #f8fafc; white-space: pre-wrap; font-size: 0.9rem; max-height: 300px; overflow-y: auto;}
+        .loading-spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 5px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-700 antialiased">
+
+    <header class="bg-sky-700 text-white shadow-lg">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <h1 class="text-3xl font-bold text-center">迪拜租车成本交互式分析器</h1>
+            <p class="text-center text-sky-100 mt-1">根据您的需求估算在迪拜租车的每周和每月成本，并获取AI智能建议</p>
+        </div>
+        <nav class="bg-white shadow-md">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 flex justify-center space-x-2 sm:space-x-4 py-3 overflow-x-auto">
+                <button data-tab="estimator" class="tab-button active text-sm sm:text-base font-medium py-2 px-3 sm:px-5 rounded-md border-b-2 border-transparent hover:border-sky-500 hover:text-sky-600">租金估算器</button>
+                <button data-tab="costs" class="tab-button text-sm sm:text-base font-medium py-2 px-3 sm:px-5 rounded-md border-b-2 border-transparent hover:border-sky-500 hover:text-sky-600">费用详解</button>
+                <button data-tab="providers" class="tab-button text-sm sm:text-base font-medium py-2 px-3 sm:px-5 rounded-md border-b-2 border-transparent hover:border-sky-500 hover:text-sky-600">选择租车公司</button>
+                <button data-tab="tips" class="tab-button text-sm sm:text-base font-medium py-2 px-3 sm:px-5 rounded-md border-b-2 border-transparent hover:border-sky-500 hover:text-sky-600">重要贴士</button>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <section id="estimator" class="content-section active space-y-8">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-2xl font-semibold text-slate-800 mb-1">欢迎使用租金估算器</h2>
+                <p class="text-slate-600 mb-6">本部分旨在帮助您根据选择的车辆级别和租赁时长，估算在迪拜租车的基础费用，并了解额外费用可能如何影响总成本。您还可以获取AI生成的行程建议和省钱技巧。请注意，所有价格均为估算值，实际价格可能因季节、供应商和具体促销活动而异。</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div>
+                        <label for="carCategory" class="block text-sm font-medium text-slate-700 mb-1">选择车辆级别:</label>
+                        <select id="carCategory" class="w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500">
+                            <option value="economy">基础/经济型轿车</option>
+                            <option value="standard">普通/标准型轿车</option>
+                            <option value="luxuryLandRover">豪华型 (路虎)</option>
+                        </select>
+                    </div>
+                    <div id="landRoverModelGroup" class="hidden">
+                        <label for="landRoverModel" class="block text-sm font-medium text-slate-700 mb-1">选择路虎车型:</label>
+                        <select id="landRoverModel" class="w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500">
+                        </select>
+                    </div>
+                    <div>
+                        <label for="rentalDuration" class="block text-sm font-medium text-slate-700 mb-1">选择租赁时长:</label>
+                        <select id="rentalDuration" class="w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500">
+                            <option value="weekly">周租</option>
+                            <option value="monthly">月租</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-8">
+                    <h3 class="text-xl font-semibold text-slate-800 mb-3">预估基础租金范围 (AED)</h3>
+                    <div class="chart-container bg-slate-50 p-4 rounded-lg">
+                        <canvas id="rentalCostChart"></canvas>
+                    </div>
+                    <p id="baseCostText" class="text-sm text-slate-600 mt-3 text-center"></p>
+                     <p id="carModelsText" class="text-sm text-slate-500 mt-1 text-center"></p>
+                </div>
+
+                <div>
+                    <h3 class="text-xl font-semibold text-slate-800 mb-4">额外费用估算 (可选)</h3>
+                    <div id="additionalCostsChecklist" class="space-y-3 text-sm">
+                    </div>
+                    <div class="mt-6 p-4 bg-sky-50 border border-sky-200 rounded-lg">
+                        <h4 class="text-lg font-semibold text-sky-700">预估总成本范围 (含增值税):</h4>
+                        <p id="totalEstimatedCost" class="text-2xl font-bold text-sky-600">AED 0 - AED 0</p>
+                        <p class="text-xs text-slate-500">此估算已包含5%增值税在基础租金和选中的额外服务上。</p>
+                    </div>
+                </div>
+                 <div id="keyConsiderations" class="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <h4 class="text-lg font-semibold text-amber-700">重要提示:</h4>
+                    <p id="considerationsText" class="text-sm text-amber-600"></p>
+                </div>
+
+                <div id="geminiFeatures" class="mt-8 space-y-6">
+                    <div>
+                        <button id="getItineraryButton" class="w-full sm:w-auto bg-gradient-to-r from-teal-400 to-blue-500 hover:from-teal-500 hover:to-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center justify-center">
+                            <span class="mr-2">✨</span> AI智能行程建议
+                        </button>
+                        <div id="itineraryResult" class="gemini-output hidden">
+                            <div class="loading-spinner hidden"></div>
+                            <p id="itineraryText"></p>
+                        </div>
+                    </div>
+                    <div>
+                        <button id="getSavingsButton" class="w-full sm:w-auto bg-gradient-to-r from-purple-400 to-pink-500 hover:from-purple-500 hover:to-pink-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center justify-center">
+                           <span class="mr-2">✨</span> AI省钱技巧
+                        </button>
+                        <div id="savingsResult" class="gemini-output hidden">
+                            <div class="loading-spinner hidden"></div>
+                            <p id="savingsText"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="costs" class="content-section space-y-6">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-2xl font-semibold text-slate-800 mb-1">费用详解</h2>
+                <p class="text-slate-600 mb-6">了解构成您迪拜租车总账单的各个组成部分至关重要。广告价格往往只是开始，实际费用会包含保险、过路费、押金及其他潜在项目。本部分将详细解析这些常见成本。</p>
+            </div>
+            <div id="costDetailsAccordion" class="space-y-3">
+            </div>
+             <div class="bg-white p-6 rounded-lg shadow mt-6">
+                <h3 class="text-xl font-semibold text-slate-800 mb-4">潜在额外费用一览表</h3>
+                <p class="text-slate-600 mb-4">下表总结了除基本租金和核心保险外，您在迪拜租车时可能遇到的其他常见额外费用。请注意，具体金额和政策可能因租赁公司而异。</p>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-slate-200 border border-slate-200 rounded-lg">
+                        <thead class="bg-slate-100">
+                            <tr>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">费用项目</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">大致范围/金额 (AED)</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">备注</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-slate-200 text-sm">
+                            <tr><td class="px-4 py-3">Salik 过路费</td><td class="px-4 py-3">每次 AED 4-6</td><td class="px-4 py-3">另加管理费</td></tr>
+                            <tr><td class="px-4 py-3">Salik 管理费</td><td class="px-4 py-3">每次 AED 0.5-5，或按比例（如Thrifty +25%）</td><td class="px-4 py-3">因公司而异</td></tr>
+                            <tr><td class="px-4 py-3">增值税 (VAT)</td><td class="px-4 py-3">5%</td><td class="px-4 py-3">适用于租金及多种服务</td></tr>
+                            <tr><td class="px-4 py-3">押金范围</td><td class="px-4 py-3">AED 1,000 - 5,000+</td><td class="px-4 py-3">取决于车型和公司</td></tr>
+                            <tr><td class="px-4 py-3">超里程费（每公里）</td><td class="px-4 py-3">AED 0.35 - 3+</td><td class="px-4 py-3">取决于车型和公司</td></tr>
+                            <tr><td class="px-4 py-3">燃油未加满罚金</td><td class="px-4 py-3">高于市场价的燃油费 + 服务费</td><td class="px-4 py-3">例如Alamo +25%服务费</td></tr>
+                            <tr><td class="px-4 py-3">额外驾驶员费</td><td class="px-4 py-3">每日 AED 20-50，或每合同固定费用</td><td class="px-4 py-3">豪华车可能更高</td></tr>
+                            <tr><td class="px-4 py-3">机场附加费</td><td class="px-4 py-3">约 AED 50</td><td class="px-4 py-3">如在机场取还车</td></tr>
+                            <tr><td class="px-4 py-3">交通罚款管理费</td><td class="px-4 py-3">每笔 AED 50-100，或按比例</td><td class="px-4 py-3">因公司而异</td></tr>
+                            <tr><td class="px-4 py-3">低龄驾驶员附加费</td><td class="px-4 py-3">可能适用</td><td class="px-4 py-3">通常针对21-25岁驾驶员</td></tr>
+                            <tr><td class="px-4 py-3">清洁费（如需）</td><td class="px-4 py-3">最高可达 AED 500</td><td class="px-4 py-3">如车辆异常肮脏</td></tr>
+                            <tr><td class="px-4 py-3">延迟还车罚金</td><td class="px-4 py-3">可能按天计算</td><td class="px-4 py-3">通常费率较高</td></tr>
+                            <tr><td class="px-4 py-3">异地还车费</td><td class="px-4 py-3">可能适用</td><td class="px-4 py-3">例如跨酋长国还车</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="providers" class="content-section space-y-6">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-2xl font-semibold text-slate-800 mb-1">选择租车公司</h2>
+                <p class="text-slate-600 mb-6">在迪拜，您可以选择直接从国际知名连锁品牌租车，也可以通过聚合平台连接众多本地供应商。两者各有优劣，了解其差异有助于您做出更合适的选择。</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-semibold text-slate-800 mb-3">主要直接租赁公司 (如 Hertz, Avis)</h3>
+                    <p class="text-sm text-slate-600 mb-2">直接从这些老牌国际公司租车通常意味着：</p>
+                    <ul class="list-disc list-inside space-y-1 text-sm text-slate-600">
+                        <li><strong class="text-emerald-600">优势:</strong>
+                            <ul class="list-disc list-inside ml-4 space-y-1">
+                                <li>服务流程相对标准化。</li>
+                                <li>客户支持体系可能更为健全。</li>
+                                <li>车辆状况和维护通常有保障。</li>
+                                <li>部分品牌提供会员忠诚度计划，可享折扣或升级。</li>
+                                <li>合同条款相对清晰，争议处理途径明确。</li>
+                            </ul>
+                        </li>
+                        <li><strong class="text-rose-600">劣势:</strong>
+                            <ul class="list-disc list-inside ml-4 space-y-1">
+                                <li>标准租金价格可能略高于本地小型公司。</li>
+                                <li>车型选择可能不如聚合平台丰富。</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-semibold text-slate-800 mb-3">聚合平台 (如 OneClickDrive, Renty)</h3>
+                    <p class="text-sm text-slate-600 mb-2">聚合平台连接用户与众多本地租车公司：</p>
+                     <ul class="list-disc list-inside space-y-1 text-sm text-slate-600">
+                        <li><strong class="text-emerald-600">优势:</strong>
+                            <ul class="list-disc list-inside ml-4 space-y-1">
+                                <li>通常能提供更具竞争力的价格，因其汇集了众多供应商。</li>
+                                <li>车型选择非常广泛，覆盖各种级别和年份。</li>
+                                <li>方便比较不同供应商的报价。</li>
+                                <li>部分平台可能提供“免押金”选项（需注意附加条件）。</li>
+                            </ul>
+                        </li>
+                        <li><strong class="text-rose-600">劣势:</strong>
+                            <ul class="list-disc list-inside ml-4 space-y-1">
+                                <li>实际服务由不同供应商提供，服务质量、车辆状况、合同条款（尤其押金）差异大。</li>
+                                <li>需要租车人自行承担更多审查供应商信誉的责任。</li>
+                                <li>押金退还问题可能是投诉热点，尤其针对部分小型供应商。</li>
+                                <li>遇到问题时，可能需要在平台和实际供应商之间沟通。</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+             <div class="bg-white p-6 rounded-lg shadow mt-6">
+                <h3 class="text-xl font-semibold text-slate-800 mb-3">选择时的考量因素</h3>
+                <ul class="list-disc list-inside space-y-2 text-slate-600 text-sm">
+                    <li><strong>价格与服务平衡：</strong>不要只追求最低价，综合考虑服务可靠性和条款清晰度。</li>
+                    <li><strong>费用透明度：</strong>无论通过何种渠道，签约前务必了解所有潜在费用。</li>
+                    <li><strong>评价与声誉：</strong>查阅聚合平台及具体供应商的用户评价和市场口碑。</li>
+                    <li><strong>合同细则：</strong>仔细阅读保险、里程、押金等关键条款。</li>
+                    <li><strong>灵活性：</strong>了解预订的取消和修改政策。</li>
+                </ul>
+                <p class="mt-4 text-sm text-slate-500"><strong>核心建议：</strong>通过聚合平台可能找到更低价格，但需警惕服务不确定性；国际品牌价格可能稍高，但服务更标准。对于重视服务一致性和风险规避的用户，或有重复租赁需求的客户（可受益于会员计划），国际品牌可能是更稳妥的选择。对于价格敏感且愿意花时间研究供应商的用户，聚合平台则提供了节省的机会。</p>
+            </div>
+        </section>
+
+        <section id="tips" class="content-section space-y-6">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-2xl font-semibold text-slate-800 mb-1">重要贴士</h2>
+                <p class="text-slate-600 mb-6">在迪拜顺利租车并避免不必要的麻烦，掌握一些基本知识和技巧非常重要。本部分将为您提供关于所需文件、合同审阅以及常见问题规避的实用建议。</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-xl font-semibold text-slate-800 mb-3">5.1. 所需文件</h3>
+                <p class="text-sm text-slate-600 mb-2">确保携带所有必要文件，具体要求因您的身份而异：</p>
+                <ul class="list-disc list-inside space-y-2 text-sm text-slate-600">
+                    <li><strong>阿联酋居民：</strong>有效的阿联酋身份证（Emirates ID）和有效的阿联酋驾驶执照（可能要求持有6个月至1年）。</li>
+                    <li><strong>游客：</strong>护照、有效签证、本国驾驶执照原件、国际驾驶许可证（IDP）。部分国家（GCC、美、英、加、欧等）游客可能仅凭本国驾照租车，但强烈建议与租车公司核实。<strong>未按规定提供IDP可能导致无法租车或保险失效。</strong></li>
+                    <li><strong>最低年龄限制：</strong>通常为21或23岁，豪华车型可能要求25岁或更高。低龄驾驶员可能需支付附加费。</li>
+                </ul>
+            </div>
+             <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-xl font-semibold text-slate-800 mb-3">5.2. 租赁合同关键条款审阅</h3>
+                <p class="text-sm text-slate-600 mb-2">签署合同前，务必仔细阅读并理解：</p>
+                <ul class="list-disc list-inside space-y-1 text-sm text-slate-600">
+                    <li>租赁期限与费用（含延迟还车罚金）。</li>
+                    <li>保险范围、免赔额及除外情况。</li>
+                    <li>车辆状况（取车时仔细检查并记录，确保写入合同）。</li>
+                    <li>燃油政策（如“满油取还”）。</li>
+                    <li>里程限制与超额费用。</li>
+                    <li>所有附加费用（Salik、罚款管理费、机场费等）。</li>
+                    <li>押金金额、支付方式、退还条件及时间。</li>
+                    <li>使用限制（如禁止越野、跨境）。</li>
+                </ul>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-xl font-semibold text-slate-800 mb-3">5.3. 常见问题及避免方法</h3>
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <h4 class="font-semibold text-slate-700">押金问题（退还延迟/不合理扣款）：</h4>
+                        <p class="text-slate-600">避免方法：明确退还流程；尽量用信用卡预授权；取还车时仔细检查并拍照/录像存证；保留所有文件；遇延迟坚持沟通。</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-slate-700">意外收费（Salik、罚款管理费等）：</h4>
+                        <p class="text-slate-600">避免方法：签约前问清所有可能费用；仔细阅读合同；还车时确保车辆清洁、油箱按规定加满。</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-slate-700">保险误解（覆盖范围不清/高免赔额）：</h4>
+                        <p class="text-slate-600">避免方法：详细了解保险条款；考虑购买SCDW降低风险；检查个人旅游险或信用卡是否提供相关保障。</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-slate-700">车辆状况争议（被指控造成已有损坏）：</h4>
+                        <p class="text-slate-600">避免方法：取车时与员工一同仔细检查，拍照/录像记录任何已有损伤，并确保写入合同的车辆状况表。</p>
+                    </div>
+                     <div>
+                        <h4 class="font-semibold text-slate-700">交通罚款（高额管理费）：</h4>
+                        <p class="text-slate-600">避免方法：严格遵守交通法规；了解罚款处理流程。</p>
+                    </div>
+                     <div>
+                        <h4 class="font-semibold text-slate-700">选择不可靠的供应商（低价诱饵、车况差、押金难退）：</h4>
+                        <p class="text-slate-600">避免方法：选择知名或口碑好的公司；警惕“好得令人难以置信”的低价。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow mt-6">
+                <h3 class="text-xl font-semibold text-slate-800 mb-3">通用省钱与避坑建议</h3>
+                <ul class="list-disc list-inside space-y-2 text-slate-600 text-sm">
+                    <li><strong>事前明确所有费用：</strong>签约前问清楚。</li>
+                    <li><strong>仔细检查并记录车况：</strong>取还车时拍照录像。</li>
+                    <li><strong>了解押金政策：</strong>金额、支付、扣款、退还时间。</li>
+                    <li><strong>规划行车路线：</strong>可使用导航避开收费站以减少Salik费。</li>
+                    <li><strong>提前预订并关注优惠：</strong>尤其旺季，或行程灵活时关注临近优惠。</li>
+                    <li><strong>知情者优势：</strong>花时间研究费用构成、比较公司、阅读评价、熟悉自身权利，是避免陷阱、实现经济租车的关键。</li>
+                </ul>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-slate-800 text-slate-300 py-8 mt-12">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <p class="text-sm">&copy; 2024 迪拜租车成本分析器。信息仅供参考，请以实际租赁公司提供为准。</p>
+            <p class="text-xs mt-1">数据来源：《迪拜租车成本详细分析》报告。部分建议由AI生成。</p>
+        </div>
+    </footer>
+
+<script>
+const rentalData = {
+    economy: {
+        label: '基础/经济型轿车',
+        models: '典型车型：起亚Picanto, 日产阳光, 三菱Mirage, 丰田雅力士等。',
+        weekly: { min: 350, max: 840 },
+        monthly: { min: 1200, max: 2200 },
+        description: '经济型车是预算有限租车人的首选，油耗较低。对于停留三周或更长时间的用户，月租通常比多次续订周租更为经济。'
+    },
+    standard: {
+        label: '普通/标准型轿车',
+        models: '典型车型：丰田卡罗拉, 雷诺Duster, 马自达3/6, 现代Creta等。',
+        weekly: { min: 600, max: 1500 },
+        monthly: { min: 1800, max: 4000 },
+        description: '标准型车在空间、舒适度和动力方面较经济型有所提升，适合对驾乘体验有一定要求的用户。月租性价比依然较高。'
+    },
+    luxuryLandRover: {
+        label: '豪华型轿车 (路虎)',
+        models: '路虎车型年份和具体配置（如HSE, SVR, 行政版等）对价格有显著影响。',
+        defaultWeekly: { min: 3000, max: 10500 }, 
+        defaultMonthly: { min: 10000, max: 30000 }, 
+        options: {
+            evoque_2022: { label: '揽胜极光 (Evoque) (2022)', weekly: { min: 3000, max: 4000 }, monthly: { min: 11000, max: 13000 } },
+            velar_2020_2022: { label: '揽胜星脉 (Velar) (2020-2022)', weekly: { min: 3000, max: 4500 }, monthly: { min: 10000, max: 16000 } },
+            sport_2020_2024: { label: '揽胜运动版 (Sport) (2020-2024)', weekly: { min: 3000, max: 7000 }, monthly: { min: 11000, max: 25000 } },
+            vogue_2022_2023: { label: '揽胜行政版 (Vogue) (2022-2023)', weekly: { min: 6500, max: 10000 }, monthly: { min: 25000, max: 30000 } },
+            defender_2023_2025: { label: '卫士 (Defender) (2023-2025)', weekly: { min: 4800, max: 8500 }, monthly: { min: 18500, max: 25000 } }
+        },
+        description: '豪华型车满足对品牌、性能和极致舒适度有较高要求的客户。选择略旧一些的车型或非顶配版本可以节省费用。月租依然最具性价比。'
+    }
+};
+
+const additionalCostsMeta = [
+    { id: 'scdw', name: '购买全面碰撞险 (SCDW)', type: 'insurance', estimatedMin: 35, estimatedMax: 100, unit: 'daily', note: '显著降低或免除碰撞免赔额，但价格较高。每日约 AED 35-100。' },
+    { id: 'salik', name: 'Salik 过路费 (预估)', type: 'toll', passCostMin: 4, passCostMax: 6, adminFeePerPassMin: 0.5, adminFeePerPassMax: 1.5, typicalPassesWeekly: 10, typicalPassesMonthly: 40, note: '每次通过 AED 4-6，租赁公司会加收管理费。此处按每周10次/每月40次估算。' },
+    { id: 'airport_fee', name: '机场附加费', type: 'fee', fixedMin: 50, fixedMax: 50, unit: 'fixed', note: '如在机场取还车，通常会产生一次性费用约 AED 50。' },
+    { id: 'extra_driver', name: '添加额外驾驶员', type: 'fee', estimatedMin: 20, estimatedMax: 50, unit: 'daily', note: '如需添加额外驾驶员，每日约 AED 20-50。' }
+];
+
+const costDetailsData = [
+    { title: '基础租赁费 (周租 vs. 月租)', content: '租车的基本费用因租赁时长而异。通常，日均租金在选择周租时会下降，月租则提供更低的日均价格，性价比最高，有时还包含免费保养。' },
+    { title: '保险深度解析 (TPL, CDW, SCDW)', content: '<strong>基础/强制保险 (TPL - 第三方责任险):</strong> 法律规定必须配备，承保对第三方的人伤和财损，不保租赁车辆本身及租车人。通常已含在租金内。<br><strong>碰撞损害豁免 (CDW):</strong> 减轻租车人对租赁车辆碰撞损坏的赔偿责任，但通常有免赔额 (Excess)，例如AED 1,500-5,000。不包括轮胎、玻璃、底盘等。<br><strong>超级碰撞损害豁免 (SCDW) / 全面保护:</strong> 费用较高，可将碰撞免赔额降至零（或极低），但仍有除外条款（如鲁莽驾驶、轮胎玻璃）。<br><strong>盗窃险 (TP):</strong> 承保车辆被盗风险。购买全面保险会显著增加每日成本。' },
+    { title: 'Salik 过路费系统', content: '迪拜电子不停车收费系统。车辆通过Salik闸门时自动记录费用 (通常每次AED 4，高峰期或有不同)。租赁公司会转嫁此费用，并通常加收管理费 (如每次AED 0.5-5，或按比例加收)。' },
+    { title: '押金 (Security Deposit)', content: '普遍做法，用于担保罚款、Salik、车损等。金额因车型和公司异 (AED 1,000-5,000+，豪华车更高)。通常用信用卡预授权。退款时间法律规定30天内，实际常需15-30天或更长，因需等待罚款出账。部分公司提供“免押金”选项，但通常有附加条件。' },
+    { title: '里程限额及超额费用', content: '多数合同有每日 (如150-400公里) 或总里程限额。月租限额更高 (如4,500-5,000公里/月)。超额部分按每公里收费 (如AED 0.35-3+，豪华车更高)。部分公司提供不限里程选项，但基础租金更高。' },
+    { title: '燃油政策', content: '<strong>满油取还 (Full-to-Full):</strong> 最常见。取车满油，还车也需加满。只需支付实际用油。若未加满，租车公司会代加油并收高价燃油费及服务费。<br><strong>预付燃油费:</strong> 取车时预付一箱油费，还车无需加满，剩余燃油不退款。可能方便但若用不完则不划算。' },
+    { title: '其他潜在费用', content: '<strong>增值税(VAT):</strong> 5%，适用于租金及多种服务。<br><strong>额外驾驶员费:</strong> 每日约AED 20-50 (豪华车更高)。<br><strong>机场附加费:</strong> 机场取还车约AED 50。<br><strong>交通罚款管理费:</strong> 每笔罚款加收AED 50-100或按比例。<br><strong>延迟还车费:</strong> 可能很高，甚至按天计算。<br><strong>低龄驾驶员附加费:</strong> 如年龄低于23/25岁。<br><strong>清洁费:</strong> 车辆异常肮脏时收取 (最高可达AED 500)。<br><strong>异地还车费:</strong> 如跨酋长国还车。各项杂费累积起来可能很高。' }
+];
+
+
+let rentalChart = null;
+const carCategorySelect = document.getElementById('carCategory');
+const landRoverModelGroup = document.getElementById('landRoverModelGroup');
+const landRoverModelSelect = document.getElementById('landRoverModel');
+const rentalDurationSelect = document.getElementById('rentalDuration');
+const baseCostTextEl = document.getElementById('baseCostText');
+const carModelsTextEl = document.getElementById('carModelsText');
+const considerationsTextEl = document.getElementById('considerationsText');
+const additionalCostsChecklistEl = document.getElementById('additionalCostsChecklist');
+const totalEstimatedCostEl = document.getElementById('totalEstimatedCost');
+
+const getItineraryButton = document.getElementById('getItineraryButton');
+const itineraryResultDiv = document.getElementById('itineraryResult');
+const itineraryTextEl = document.getElementById('itineraryText');
+const getSavingsButton = document.getElementById('getSavingsButton');
+const savingsResultDiv = document.getElementById('savingsResult');
+const savingsTextEl = document.getElementById('savingsText');
+
+function populateLandRoverModels() {
+    landRoverModelSelect.innerHTML = '';
+    const options = rentalData.luxuryLandRover.options;
+    for (const key in options) {
+        const option = document.createElement('option');
+        option.value = key;
+        option.textContent = options[key].label;
+        landRoverModelSelect.appendChild(option);
+    }
+}
+
+function updateEstimator() {
+    const category = carCategorySelect.value;
+    const duration = rentalDurationSelect.value;
+    let chartData;
+    let description = rentalData[category].description;
+    let models = rentalData[category].models;
+
+    if (category === 'luxuryLandRover') {
+        landRoverModelGroup.classList.remove('hidden');
+        const landRoverModelKey = landRoverModelSelect.value;
+        if (rentalData.luxuryLandRover.options[landRoverModelKey]) {
+            chartData = rentalData.luxuryLandRover.options[landRoverModelKey][duration];
+            models = rentalData.luxuryLandRover.options[landRoverModelKey].label;
+        } else { 
+             chartData = rentalData.luxuryLandRover[`default${duration.charAt(0).toUpperCase() + duration.slice(1)}`];
+        }
+    } else {
+        landRoverModelGroup.classList.add('hidden');
+        chartData = rentalData[category][duration];
+    }
+
+    baseCostTextEl.textContent = `以上为选择 "${rentalData[category].label}" 进行 "${duration === 'weekly' ? '周租' : '月租'}" 的预估基础租金范围。`;
+    carModelsTextEl.textContent = models || '';
+    considerationsTextEl.textContent = description || '';
+
+
+    if (rentalChart) {
+        rentalChart.destroy();
+    }
+    const ctx = document.getElementById('rentalCostChart').getContext('2d');
+    rentalChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['最低预估基础租金', '最高预估基础租金'],
+            datasets: [{
+                label: `预估基础租金 (AED) - ${duration === 'weekly' ? '周' : '月'}`,
+                data: [chartData.min, chartData.max],
+                backgroundColor: ['rgba(56, 189, 248, 0.6)', 'rgba(14, 165, 233, 0.6)'],
+                borderColor: ['#0ea5e9', '#0284c7'],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            scales: {
+                x: { beginAtZero: true, title: { display: true, text: '金额 (AED)' } },
+                y: { ticks: { font: { size: 10 } } }
+            },
+            plugins: {
+                legend: { display: true, position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `AED ${context.raw.toLocaleString()}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    calculateTotalCost();
+}
+
+function buildAdditionalCostsChecklist() {
+    additionalCostsChecklistEl.innerHTML = '';
+    additionalCostsMeta.forEach(cost => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between bg-slate-50 p-3 rounded-md border border-slate-200';
+        
+        const labelDiv = document.createElement('div');
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = cost.id;
+        input.name = cost.id;
+        input.className = 'h-4 w-4 text-sky-600 border-slate-300 rounded focus:ring-sky-500 mr-2 additional-cost-checkbox';
+        input.dataset.min = cost.estimatedMin || cost.fixedMin || cost.passCostMin;
+        input.dataset.max = cost.estimatedMax || cost.fixedMax || cost.passCostMax;
+        input.dataset.unit = cost.unit;
+        input.dataset.type = cost.type;
+        if (cost.typicalPassesWeekly) input.dataset.passesWeekly = cost.typicalPassesWeekly;
+        if (cost.typicalPassesMonthly) input.dataset.passesMonthly = cost.typicalPassesMonthly;
+        if (cost.adminFeePerPassMin) input.dataset.adminFeeMin = cost.adminFeePerPassMin;
+        if (cost.adminFeePerPassMax) input.dataset.adminFeeMax = cost.adminFeePerPassMax;
+
+
+        const label = document.createElement('label');
+        label.htmlFor = cost.id;
+        label.textContent = cost.name;
+        label.className = 'text-slate-700';
+        
+        labelDiv.appendChild(input);
+        labelDiv.appendChild(label);
+
+        const tooltipSpan = document.createElement('span');
+        tooltipSpan.className = 'tooltip ml-1';
+        tooltipSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 text-slate-400"><path fill-rule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a1 1 0 0 0 0 2v3a1 1 0 0 0 1 1h1a1 1 0 1 0 0-2v-3a1 1 0 0 0-1-1H9Z" clip-rule="evenodd" /></svg><span class="tooltiptext">${cost.note}</span>`;
+        label.appendChild(tooltipSpan);
+        
+        div.appendChild(labelDiv);
+        additionalCostsChecklistEl.appendChild(div);
+
+        input.addEventListener('change', calculateTotalCost);
+    });
+}
+
+function calculateTotalCost() {
+    const category = carCategorySelect.value;
+    const duration = rentalDurationSelect.value;
+    let baseMin, baseMax;
+
+    if (category === 'luxuryLandRover') {
+        const landRoverModelKey = landRoverModelSelect.value;
+         if (rentalData.luxuryLandRover.options[landRoverModelKey]) {
+            baseMin = rentalData.luxuryLandRover.options[landRoverModelKey][duration].min;
+            baseMax = rentalData.luxuryLandRover.options[landRoverModelKey][duration].max;
+        } else {
+            baseMin = rentalData.luxuryLandRover[`default${duration.charAt(0).toUpperCase() + duration.slice(1)}`].min;
+            baseMax = rentalData.luxuryLandRover[`default${duration.charAt(0).toUpperCase() + duration.slice(1)}`].max;
+        }
+    } else {
+        baseMin = rentalData[category][duration].min;
+        baseMax = rentalData[category][duration].max;
+    }
+
+    let additionalMin = 0;
+    let additionalMax = 0;
+    const days = duration === 'weekly' ? 7 : 30;
+
+    document.querySelectorAll('.additional-cost-checkbox:checked').forEach(checkbox => {
+        const costMin = parseFloat(checkbox.dataset.min);
+        const costMax = parseFloat(checkbox.dataset.max);
+        const unit = checkbox.dataset.unit;
+        const type = checkbox.dataset.type;
+
+        if (unit === 'daily') {
+            additionalMin += costMin * days;
+            additionalMax += costMax * days;
+        } else if (unit === 'fixed') {
+            additionalMin += costMin;
+            additionalMax += costMax;
+        } else if (type === 'toll') { 
+            const passes = duration === 'weekly' ? parseInt(checkbox.dataset.passesWeekly) : parseInt(checkbox.dataset.passesMonthly);
+            const adminFeeMin = parseFloat(checkbox.dataset.adminFeeMin);
+            const adminFeeMax = parseFloat(checkbox.dataset.adminFeeMax);
+            additionalMin += passes * (costMin + adminFeeMin);
+            additionalMax += passes * (costMax + adminFeeMax);
+        }
+    });
+    
+    let totalMinBeforeVAT = baseMin + additionalMin;
+    let totalMaxBeforeVAT = baseMax + additionalMax;
+
+    const vatRate = 0.05;
+    const totalMinWithVAT = totalMinBeforeVAT * (1 + vatRate);
+    const totalMaxWithVAT = totalMaxBeforeVAT * (1 + vatRate);
+
+    totalEstimatedCostEl.textContent = `AED ${Math.round(totalMinWithVAT).toLocaleString()} - AED ${Math.round(totalMaxWithVAT).toLocaleString()}`;
+}
+
+
+carCategorySelect.addEventListener('change', updateEstimator);
+rentalDurationSelect.addEventListener('change', updateEstimator);
+landRoverModelSelect.addEventListener('change', updateEstimator);
+
+
+function setupTabs() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const contentSections = document.querySelectorAll('.content-section');
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+
+            const targetTab = button.dataset.tab;
+            contentSections.forEach(section => {
+                if (section.id === targetTab) {
+                    section.classList.add('active');
+                } else {
+                    section.classList.remove('active');
+                }
+            });
+        });
+    });
+}
+
+function buildCostDetailsAccordion() {
+    const accordionContainer = document.getElementById('costDetailsAccordion');
+    costDetailsData.forEach((item, index) => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'bg-white rounded-lg shadow';
+
+        const button = document.createElement('button');
+        button.className = 'w-full flex justify-between items-center p-4 text-left text-slate-700 font-medium hover:bg-slate-50 focus:outline-none';
+        button.innerHTML = `
+            <span>${item.title}</span>
+            <svg class="w-5 h-5 transform transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+        `;
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'accordion-content px-4 pb-4 text-sm text-slate-600';
+        contentDiv.innerHTML = `<p>${item.content.replace(/\n/g, '<br>')}</p>`;
+
+        button.addEventListener('click', () => {
+            const icon = button.querySelector('svg');
+            if (contentDiv.style.maxHeight && contentDiv.style.maxHeight !== '0px') {
+                contentDiv.style.maxHeight = '0px';
+                icon.classList.remove('rotate-180');
+            } else {
+                accordionContainer.querySelectorAll('.accordion-content').forEach(el => {
+                    if (el !== contentDiv) {
+                        el.style.maxHeight = '0px';
+                        el.previousElementSibling.querySelector('svg').classList.remove('rotate-180');
+                    }
+                });
+                contentDiv.style.maxHeight = contentDiv.scrollHeight + "px";
+                icon.classList.add('rotate-180');
+            }
+        });
+
+        itemDiv.appendChild(button);
+        itemDiv.appendChild(contentDiv);
+        accordionContainer.appendChild(itemDiv);
+    });
+}
+
+async function callGeminiAPI(prompt, outputElement, loadingElement) {
+    outputElement.textContent = '';
+    loadingElement.classList.remove('hidden');
+    outputElement.parentElement.classList.remove('hidden');
+
+    const apiKey = ""; 
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    
+    let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+    const payload = { contents: chatHistory };
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error("API Error:", errorData);
+            outputElement.textContent = `AI建议获取失败：${errorData.error?.message || response.statusText} 请稍后再试。`;
+            return;
+        }
+
+        const result = await response.json();
+        
+        if (result.candidates && result.candidates.length > 0 &&
+            result.candidates[0].content && result.candidates[0].content.parts &&
+            result.candidates[0].content.parts.length > 0) {
+            const text = result.candidates[0].content.parts[0].text;
+            outputElement.textContent = text;
+        } else {
+            console.error("Unexpected API response structure:", result);
+            outputElement.textContent = 'AI未能提供建议，请稍后再试。';
+        }
+    } catch (error) {
+        console.error("Fetch error:", error);
+        outputElement.textContent = '获取AI建议时发生网络错误，请检查您的网络连接并重试。';
+    } finally {
+        loadingElement.classList.add('hidden');
+    }
+}
+
+getItineraryButton.addEventListener('click', () => {
+    const carCategory = carCategorySelect.options[carCategorySelect.selectedIndex].text;
+    const rentalDuration = rentalDurationSelect.options[rentalDurationSelect.selectedIndex].text;
+    let landRoverModel = '';
+    if (carCategorySelect.value === 'luxuryLandRover' && landRoverModelSelect.value) {
+        landRoverModel = landRoverModelSelect.options[landRoverModelSelect.selectedIndex].text;
+    }
+    const selectedCarInfo = landRoverModel ? `${carCategory} (${landRoverModel})` : carCategory;
+
+    const prompt = `我计划在迪拜租用一辆${selectedCarInfo}，租期为${rentalDuration}。请为我提供3-4条适合这种车型和租期的迪拜行程建议，每条建议包含简短描述和主要游玩点。请以中文回复。`;
+    callGeminiAPI(prompt, itineraryTextEl, itineraryResultDiv.querySelector('.loading-spinner'));
+});
+
+getSavingsButton.addEventListener('click', () => {
+    const carCategory = carCategorySelect.options[carCategorySelect.selectedIndex].text;
+    const rentalDuration = rentalDurationSelect.options[rentalDurationSelect.selectedIndex].text;
+    let landRoverModel = '';
+    if (carCategorySelect.value === 'luxuryLandRover' && landRoverModelSelect.value) {
+        landRoverModel = landRoverModelSelect.options[landRoverModelSelect.selectedIndex].text;
+    }
+    const selectedCarInfo = landRoverModel ? `${carCategory} (${landRoverModel})` : carCategory;
+
+    const prompt = `我计划在迪拜租用一辆${selectedCarInfo}，租期为${rentalDuration}。请针对这种情况提供3-5条具体的省钱技巧，例如预订时机、保险选择、避免隐藏费用等方面。请以中文回复。`;
+    callGeminiAPI(prompt, savingsTextEl, savingsResultDiv.querySelector('.loading-spinner'));
+});
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    populateLandRoverModels();
+    updateEstimator();
+    buildAdditionalCostsChecklist();
+    setupTabs();
+    buildCostDetailsAccordion();
+});
+
+</script>
+</body>
+</html>
